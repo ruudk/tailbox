@@ -13,6 +13,7 @@ import (
 
 var numberOfLines int
 var successMessage string
+var failureMessage string
 var flagset *flag.FlagSet
 
 func init() {
@@ -25,6 +26,7 @@ func init() {
 	}
 	flagset.IntVar(&numberOfLines, "lines", 5, "Number of lines")
 	flagset.StringVar(&successMessage, "success", "", "Message to print when done")
+	flagset.StringVar(&failureMessage, "failure", "", "Message to print when command failed")
 }
 
 func main() {
@@ -43,6 +45,10 @@ func main() {
 	if len(commandArgs) < 1 {
 		flagset.Usage()
 		os.Exit(1)
+	}
+
+	if failureMessage != "" {
+		failureMessage += "\n"
 	}
 
 	area := cursor.NewArea()
@@ -92,7 +98,7 @@ func main() {
 		}
 
 		if err := s.Err(); err != nil {
-			area.Update(full)
+			area.Update(failureMessage + full)
 			os.Exit(1)
 		}
 	}()
@@ -105,7 +111,7 @@ func main() {
 
 	err = cmd.Wait()
 	if err != nil {
-		area.Update(full)
+		area.Update(failureMessage + full)
 		os.Exit(1)
 	}
 
