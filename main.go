@@ -48,12 +48,24 @@ func main() {
 	area := cursor.NewArea()
 	full := ""
 	cmd := exec.Command(commandArgs[0], commandArgs[1:]...)
-	defer cmd.Process.Kill()
+	defer func() {
+		err = cmd.Process.Kill()
+		if err != nil {
+			fmt.Printf("failed killing command: %v\n", err)
+			os.Exit(1)
+		}
+	}()
 
 	stdout, err := cmd.StdoutPipe()
-	defer stdout.Close()
+	defer func() {
+		err = stdout.Close()
+		if err != nil {
+			fmt.Printf("failed closing stdout: %v\n", err)
+			os.Exit(1)
+		}
+	}()
 	if err != nil {
-		fmt.Printf("failed runnig command: %v", err)
+		fmt.Printf("failed runnig command: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -87,7 +99,7 @@ func main() {
 
 	err = cmd.Start()
 	if err != nil {
-		fmt.Printf("failed starting command: %v", err)
+		fmt.Printf("failed starting command: %v\n", err)
 		os.Exit(1)
 	}
 
