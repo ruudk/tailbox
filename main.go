@@ -51,7 +51,6 @@ func main() {
 		failureMessage += "\n"
 	}
 
-	area := cursor.NewArea()
 	full := ""
 	cmd := exec.Command(commandArgs[0], commandArgs[1:]...)
 	defer func() {
@@ -74,6 +73,9 @@ func main() {
 		fmt.Printf("failed runnig command: %v\n", err)
 		os.Exit(1)
 	}
+
+	area := cursor.NewArea()
+	cursor.Hide()
 
 	go func() {
 		s := bufio.NewScanner(stdout)
@@ -98,6 +100,7 @@ func main() {
 		}
 
 		if err := s.Err(); err != nil {
+			cursor.Show()
 			area.Update(failureMessage + full)
 			os.Exit(1)
 		}
@@ -105,16 +108,19 @@ func main() {
 
 	err = cmd.Start()
 	if err != nil {
+		cursor.Show()
 		fmt.Printf("failed starting command: %v\n", err)
 		os.Exit(1)
 	}
 
 	err = cmd.Wait()
 	if err != nil {
+		cursor.Show()
 		area.Update(failureMessage + full)
 		os.Exit(1)
 	}
 
+	cursor.Show()
 	if successMessage != "" {
 		area.Update(successMessage)
 	} else {
