@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/atomicgo/cursor"
 )
@@ -63,11 +65,16 @@ func main() {
 
 	stdout, err := cmd.StdoutPipe()
 	defer func() {
-		err = stdout.Close()
-		if err != nil {
-			fmt.Printf("failed closing stdout: %v\n", err)
-			os.Exit(1)
-		}
+		_ = stdout.Close()
+	}()
+	if err != nil {
+		fmt.Printf("failed runnig command: %v\n", err)
+		os.Exit(1)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	defer func() {
+		_ = stderr.Close()
 	}()
 	if err != nil {
 		fmt.Printf("failed runnig command: %v\n", err)
@@ -76,9 +83,12 @@ func main() {
 
 	area := cursor.NewArea()
 	cursor.Hide()
-
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		s := bufio.NewScanner(stdout)
+		defer wg.Done()
+
+		s := bufio.NewScanner(io.MultiReader(stdout, stderr))
 		s.Split(bufio.ScanRunes)
 
 		box := ""
@@ -98,12 +108,6 @@ func main() {
 
 			area.Update(box)
 		}
-
-		if err := s.Err(); err != nil {
-			cursor.Show()
-			area.Update(failureMessage + full)
-			os.Exit(1)
-		}
 	}()
 
 	err = cmd.Start()
@@ -112,6 +116,8 @@ func main() {
 		fmt.Printf("failed starting command: %v\n", err)
 		os.Exit(1)
 	}
+
+	wg.Wait()
 
 	err = cmd.Wait()
 	if err != nil {
