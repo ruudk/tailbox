@@ -31,6 +31,11 @@ tailbox -success "✅ Tests passed" -failure "❌ Tests failed" -- vendor/bin/ph
 ```
 
 ## Demo
+
+Tailbox being used in a script that iterates over every commit in a branch and performs tests on the commit.
+
+It streams the last 5 lines of the runner. When the tests fail, the whole output is printed.
+
 https://user-images.githubusercontent.com/104180/128398147-d09620ff-b554-48d0-bfcf-bb37df60607a.mp4
 
 
