@@ -4,6 +4,8 @@ Tailbox allows you to tail the output of another process and stream its output i
 
 When the program completes, the output is discarded. When the program fails, the whole output is printed.
 
+Tailbox can be used to integrate into other scripts and improve their output.
+
 ## Installation
 
 ```bash
@@ -25,5 +27,11 @@ Options:
 
 ## Example
 ```
-tailbox -success "✅ Unit tests passed" -failure "❌ Unit tests failed" -- vendor/bin/phpunit
+tailbox -success "✅ Tests passed" -failure "❌ Tests failed" -- vendor/bin/phpunit
 ```
+
+## Demo
+https://user-images.githubusercontent.com/104180/128398147-d09620ff-b554-48d0-bfcf-bb37df60607a.mp4
+
+
+
