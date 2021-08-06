@@ -21,8 +21,10 @@ Options:
     	Message to print when command failed
   -lines int
     	Number of lines (default 5)
+  -running string
+    	Message to print while running the command
   -success string
-    	Message to print when done
+    	Message to print when command finished
 ```
 
 ## Example

@@ -14,6 +14,7 @@ import (
 )
 
 var numberOfLines int
+var runningMessage string
 var successMessage string
 var failureMessage string
 var flagset *flag.FlagSet
@@ -27,7 +28,8 @@ func init() {
 		flagset.PrintDefaults()
 	}
 	flagset.IntVar(&numberOfLines, "lines", 5, "Number of lines")
-	flagset.StringVar(&successMessage, "success", "", "Message to print when done")
+	flagset.StringVar(&runningMessage, "running", "", "Message to print while running the command")
+	flagset.StringVar(&successMessage, "success", "", "Message to print when command finished")
 	flagset.StringVar(&failureMessage, "failure", "", "Message to print when command failed")
 }
 
@@ -51,6 +53,12 @@ func main() {
 
 	if failureMessage != "" {
 		failureMessage += "\n"
+	}
+
+	area := cursor.NewArea()
+
+	if runningMessage != "" {
+		area.Update(runningMessage)
 	}
 
 	full := ""
@@ -81,7 +89,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	area := cursor.NewArea()
 	cursor.Hide()
 	var wg sync.WaitGroup
 	wg.Add(1)
