@@ -62,8 +62,8 @@ func main() {
 	area := cursor.NewArea()
 
 	full := ""
-	cmd := exec.Command(commandArgs[0], commandArgs[1:]...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
+	cmd := exec.Command("/bin/sh", append([]string{"-c"}, commandArgs...)...)
 	defer func() {
 		err = cmd.Process.Kill()
 		if err != nil {
