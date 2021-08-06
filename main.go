@@ -55,11 +55,11 @@ func main() {
 		failureMessage += "\n"
 	}
 
-	area := cursor.NewArea()
-
 	if runningMessage != "" {
-		area.Update(runningMessage)
+		runningMessage += "\n"
 	}
+
+	area := cursor.NewArea()
 
 	full := ""
 	cmd := exec.Command(commandArgs[0], commandArgs[1:]...)
@@ -114,7 +114,7 @@ func main() {
 				}
 			}
 
-			area.Update(box)
+			area.Update(runningMessage + box)
 		}
 	}()
 
