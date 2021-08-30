@@ -18,10 +18,14 @@ var runningMessage string
 var successMessage string
 var failureMessage string
 var flagset *flag.FlagSet
+var version = "dev-main"
+var commit string
+var date string
 
 func init() {
 	flagset = flag.NewFlagSet("tailbox", flag.ExitOnError)
 	flagset.Usage = func() {
+		fmt.Printf("tailbox %s\n", strings.Trim(strings.Join([]string{version, commit, date}, " "), " "))
 		fmt.Println("usage: tailbox [options] -- <command> [<args>]")
 		fmt.Println("")
 		fmt.Println("Options:")
