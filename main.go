@@ -90,7 +90,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	cursor.Hide()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -120,7 +119,6 @@ func main() {
 
 	err = cmd.Start()
 	if err != nil {
-		cursor.Show()
 		fmt.Printf("failed starting command: %v\n", err)
 		os.Exit(1)
 	}
@@ -129,12 +127,10 @@ func main() {
 
 	err = cmd.Wait()
 	if err != nil {
-		cursor.Show()
 		area.Update(failureMessage + full)
 		os.Exit(1)
 	}
 
-	cursor.Show()
 	if successMessage != "" {
 		area.Update(successMessage)
 	} else {
