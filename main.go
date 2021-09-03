@@ -1,16 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
-	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 
-	"github.com/atomicgo/cursor"
+	"github.com/ruudk/tailbox/tailbox"
 )
 
 var numberOfLines int
@@ -31,7 +29,7 @@ func init() {
 		fmt.Println("Options:")
 		flagset.PrintDefaults()
 	}
-	flagset.IntVar(&numberOfLines, "lines", 5, "Number of lines")
+	flagset.IntVar(&numberOfLines, "lines", 6, "Number of lines")
 	flagset.StringVar(&runningMessage, "running", "", "Message to print while running the command")
 	flagset.StringVar(&successMessage, "success", "", "Message to print when command finished")
 	flagset.StringVar(&failureMessage, "failure", "", "Message to print when command failed")
@@ -55,90 +53,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	if failureMessage != "" {
-		failureMessage += "\n"
+	tb, err := tailbox.NewTailbox(os.Stdout, numberOfLines, runningMessage, successMessage, failureMessage)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if runningMessage != "" {
-		runningMessage += "\n"
-	}
-
-	area := cursor.NewArea()
-
-	full := ""
 	cmd := exec.Command("/bin/sh", "-c", strings.Join(commandArgs, " "))
 	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
-	defer func() {
-		err = cmd.Process.Kill()
-		if err != nil {
-			fmt.Printf("failed killing command: %v\n", err)
-			os.Exit(1)
-		}
-	}()
-
-	stdout, err := cmd.StdoutPipe()
-	defer func() {
-		_ = stdout.Close()
-	}()
+	cmd.Stdout = tb
+	cmd.Stderr = tb
+	err = cmd.Run()
 	if err != nil {
-		fmt.Printf("failed runnig command: %v\n", err)
-		os.Exit(1)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	defer func() {
-		_ = stderr.Close()
-	}()
-	if err != nil {
-		fmt.Printf("failed runnig command: %v\n", err)
-		os.Exit(1)
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		s := bufio.NewScanner(io.MultiReader(stdout, stderr))
-		s.Split(bufio.ScanRunes)
-
-		box := ""
-		lines := 0
-		for s.Scan() {
-			full += s.Text()
-			box += s.Text()
-
-			if s.Text() == "\n" {
-				lines++
-
-				if lines > numberOfLines {
-					box = strings.Join(strings.Split(box, "\n")[1:], "\n")
-					lines--
-				}
-			}
-
-			area.Update(runningMessage + box)
-		}
-	}()
-
-	err = cmd.Start()
-	if err != nil {
-		fmt.Printf("failed starting command: %v\n", err)
-		os.Exit(1)
-	}
-
-	wg.Wait()
-
-	err = cmd.Wait()
-	if err != nil {
-		area.Update(failureMessage + full)
-		os.Exit(1)
-	}
-
-	if successMessage != "" {
-		area.Update(successMessage)
+		tb.Fail(err)
 	} else {
-		area.Clear()
+		tb.Success()
 	}
 
 	os.Exit(0)
