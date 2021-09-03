@@ -22,26 +22,26 @@ const (
 )
 
 type Tailbox struct {
-	c                                              console.Console
-	term                                           *vt100.VT100
-	errTerm                                        *vt100.VT100
-	termWriter                                     io.Writer
-	width                                          int
-	height                                         int
-	pad                                            string
-	padLen                                         int
-	lineCount                                      int
-	runningMessage, successMessage, failureMessage string
-	status                                         Status
-	empty                                          bool
-	ticker                                         *time.Ticker
-	refresherCtx                                   context.Context
-	refreshCanceller                               context.CancelFunc
-	wg                                             *sync.WaitGroup
-	startTime                                      time.Time
+	c                                                             console.Console
+	term                                                          *vt100.VT100
+	errTerm                                                       *vt100.VT100
+	termWriter                                                    io.Writer
+	width                                                         int
+	height                                                        int
+	pad                                                           string
+	padLen                                                        int
+	lineCount                                                     int
+	headerMessage, runningMessage, successMessage, failureMessage string
+	status                                                        Status
+	empty                                                         bool
+	ticker                                                        *time.Ticker
+	refresherCtx                                                  context.Context
+	refreshCanceller                                              context.CancelFunc
+	wg                                                            *sync.WaitGroup
+	startTime                                                     time.Time
 }
 
-func NewTailbox(f console.File, numberOfLines int, runningMessage, successMessage, failureMessage string) (*Tailbox, error) {
+func NewTailbox(f console.File, numberOfLines int, headerMessage, runningMessage, successMessage, failureMessage string) (*Tailbox, error) {
 	ticker := time.NewTicker(150 * time.Millisecond)
 
 	c, err := console.ConsoleFromFile(f)
@@ -73,6 +73,7 @@ func NewTailbox(f console.File, numberOfLines int, runningMessage, successMessag
 		pad,
 		padLen,
 		0,
+		headerMessage,
 		runningMessage,
 		successMessage,
 		failureMessage,
@@ -108,11 +109,7 @@ func (tb *Tailbox) Success() {
 func (tb *Tailbox) Fail(err error) {
 	tb.status = Failed
 	tb.destroy()
-
 	fmt.Println(aec.Apply(err.Error(), aec.RedF))
-	if tb.failureMessage != "" {
-		fmt.Fprintln(tb.c, aec.Apply(tb.failureMessage, aec.RedF))
-	}
 }
 
 func (tb *Tailbox) refresher() {
@@ -133,7 +130,7 @@ func (tb *Tailbox) refresher() {
 
 func (tb *Tailbox) update() {
 	b := aec.EmptyBuilder.Column(0)
-	if tb.runningMessage != "" && !tb.empty {
+	if (tb.headerMessage != "" || tb.runningMessage != "") && !tb.empty {
 		b = b.Up(1)
 	}
 	b = b.Up(uint(tb.lineCount))
@@ -154,10 +151,13 @@ func (tb *Tailbox) update() {
 		header = tb.successMessage
 		color = aec.GreenF
 	case Failed:
-		header = tb.runningMessage
+		header = tb.failureMessage
 		color = aec.RedF
 	}
-	if tb.runningMessage != "" {
+	if tb.headerMessage != "" {
+		header = tb.headerMessage
+	}
+	if header != "" {
 		fmt.Fprintln(tb.c, aec.Apply(align(header, fmt.Sprintf("%.1fs", time.Since(tb.startTime).Seconds()), tb.width), color))
 	}
 

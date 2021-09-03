@@ -12,6 +12,7 @@ import (
 )
 
 var numberOfLines int
+var headerMessage string
 var runningMessage string
 var successMessage string
 var failureMessage string
@@ -30,6 +31,7 @@ func init() {
 		flagset.PrintDefaults()
 	}
 	flagset.IntVar(&numberOfLines, "lines", 6, "Number of lines")
+	flagset.StringVar(&headerMessage, "header", "", "Message to print while running the command, when the command finishes or when it fails")
 	flagset.StringVar(&runningMessage, "running", "", "Message to print while running the command")
 	flagset.StringVar(&successMessage, "success", "", "Message to print when command finished")
 	flagset.StringVar(&failureMessage, "failure", "", "Message to print when command failed")
@@ -53,7 +55,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	tb, err := tailbox.NewTailbox(os.Stdout, numberOfLines, runningMessage, successMessage, failureMessage)
+	if headerMessage != "" && (runningMessage != "" || successMessage != "" || failureMessage != "") {
+		flagset.Usage()
+		fmt.Println()
+		fmt.Println("error: cannot use `-header` together with `-running`, `-success` or `-failure`.")
+		os.Exit(1)
+	}
+
+	tb, err := tailbox.NewTailbox(os.Stdout, numberOfLines, headerMessage, runningMessage, successMessage, failureMessage)
 	if err != nil {
 		log.Fatal(err)
 	}
