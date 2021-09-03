@@ -33,7 +33,6 @@ type Tailbox struct {
 	lineCount                                                     int
 	headerMessage, runningMessage, successMessage, failureMessage string
 	status                                                        Status
-	empty                                                         bool
 	ticker                                                        *time.Ticker
 	refresherCtx                                                  context.Context
 	refreshCanceller                                              context.CancelFunc
@@ -78,7 +77,6 @@ func NewTailbox(f console.File, numberOfLines int, headerMessage, runningMessage
 		successMessage,
 		failureMessage,
 		Running,
-		true,
 		ticker,
 		refresherCtx,
 		refreshCanceller,
@@ -130,16 +128,16 @@ func (tb *Tailbox) refresher() {
 
 func (tb *Tailbox) update() {
 	b := aec.EmptyBuilder.Column(0)
-	if (tb.headerMessage != "" || tb.runningMessage != "") && !tb.empty {
-		b = b.Up(1)
+	if tb.lineCount > 0 {
+		b = b.Up(uint(tb.lineCount))
 	}
-	b = b.Up(uint(tb.lineCount))
-	tb.empty = true
 
 	fmt.Fprint(tb.c, aec.Hide)
 	defer fmt.Fprint(tb.c, aec.Show)
 
 	fmt.Fprint(tb.c, b.ANSI)
+
+	lineCount := 0
 
 	var header string
 	var color aec.ANSI
@@ -158,6 +156,7 @@ func (tb *Tailbox) update() {
 		header = tb.headerMessage
 	}
 	if header != "" {
+		lineCount++
 		fmt.Fprintln(tb.c, aec.Apply(align(header, fmt.Sprintf("%.1fs", time.Since(tb.startTime).Seconds()), tb.width), color))
 	}
 
@@ -166,7 +165,6 @@ func (tb *Tailbox) update() {
 		term = tb.errTerm
 	}
 
-	lineCount := 0
 	if tb.status != Completed {
 		color = aec.Faint
 		if tb.status == Failed {
@@ -185,7 +183,6 @@ func (tb *Tailbox) update() {
 		tb.blank(lines)
 	}
 	tb.lineCount = lineCount
-	tb.empty = false
 }
 
 func (tb *Tailbox) blank(lines int) {
