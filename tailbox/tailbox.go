@@ -133,7 +133,7 @@ func (tb *Tailbox) refresher() {
 
 func (tb *Tailbox) update() {
 	b := aec.EmptyBuilder.Column(0)
-	if !tb.empty {
+	if tb.runningMessage != "" && !tb.empty {
 		b = b.Up(1)
 	}
 	b = b.Up(uint(tb.lineCount))
@@ -157,7 +157,9 @@ func (tb *Tailbox) update() {
 		header = tb.runningMessage
 		color = aec.RedF
 	}
-	fmt.Fprintln(tb.c, aec.Apply(align(header, fmt.Sprintf("%.1fs", time.Since(tb.startTime).Seconds()), tb.width), color))
+	if tb.runningMessage != "" {
+		fmt.Fprintln(tb.c, aec.Apply(align(header, fmt.Sprintf("%.1fs", time.Since(tb.startTime).Seconds()), tb.width), color))
+	}
 
 	term := tb.term
 	if tb.status == Failed {
