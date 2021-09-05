@@ -48,6 +48,6 @@ do
     echo ""
 done
 
-#echo "COULD NOT INSTALL PACKAGE 123" && exit 1
+echo "COULD NOT INSTALL PACKAGE 123" && exit 1
 
 echo "Done!"

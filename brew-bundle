@@ -1,0 +1,30 @@
+#!/bin/bash
+
+function cleanup() {
+  echo "Cleaning up...1"
+  sleep 0.5
+  echo "Cleaning up...2"
+  sleep 0.5
+  echo "Cleaning up...3"
+  sleep 0.5
+  echo "Cleaning up...4"
+  sleep 0.5
+  echo "Cleaned up!"
+  exit 0
+}
+
+trap cleanup INT
+
+for i in {1..10}
+do
+    echo "Homebrew $i..."
+    echo ""
+
+    sleep 0.2
+done
+
+echo ""
+
+#echo "COULD NOT INSTALL PACKAGE 123" && exit 1
+
+echo "Done!"

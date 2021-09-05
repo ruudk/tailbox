@@ -1,0 +1,16 @@
+#!/bin/bash
+
+for i in {1..20}
+do
+    echo "Homebrew $i..."
+
+    sleep 0.1
+done
+
+#echo "COULD NOT INSTALL PACKAGE 123" && exit 1
+
+echo "Cleaning up..."
+
+sleep 1.5
+
+echo "Done!"

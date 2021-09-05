@@ -2,205 +2,318 @@ package tailbox
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"strings"
+	"log"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 
-	"github.com/containerd/console"
-	"github.com/morikuni/aec"
-	"github.com/tonistiigi/vt100"
+	"github.com/mattn/go-tty"
+	"github.com/ruudk/tailbox/tailbox/screen"
 )
 
-type Status int
+type State int
 
 const (
-	Running Status = iota
+	Pending State = iota
+	Running
+	Stopping
+	Stopped
 	Completed
+	Failing
 	Failed
+	Terminated
 )
 
+func (s State) String() string {
+	switch s {
+	case Pending:
+		return "pending"
+	case Running:
+		return "running"
+	case Stopping:
+		return "stopping"
+	case Stopped:
+		return "stopped"
+	case Completed:
+		return "completed"
+	case Failing:
+		return "failing"
+	case Failed:
+		return "failed"
+	case Terminated:
+		return "terminated"
+	default:
+		log.Fatalf("Unknown state %#v", s)
+		return ""
+	}
+}
+
 type Tailbox struct {
-	c                                                             console.Console
-	term                                                          *vt100.VT100
-	errTerm                                                       *vt100.VT100
-	termWriter                                                    io.Writer
-	width                                                         int
-	height                                                        int
-	pad                                                           string
-	padLen                                                        int
-	lineCount                                                     int
-	headerMessage, runningMessage, successMessage, failureMessage string
-	status                                                        Status
-	ticker                                                        *time.Ticker
-	refresherCtx                                                  context.Context
-	refreshCanceller                                              context.CancelFunc
-	wg                                                            *sync.WaitGroup
-	startTime                                                     time.Time
+	sync.RWMutex
+	config    *Config
+	display   *screen.Display
+	state     State
+	workflows []*Workflow
+	workflow  *Workflow
+	startTime time.Time
+	tty       *tty.TTY
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
-func NewTailbox(f console.File, numberOfLines int, headerMessage, runningMessage, successMessage, failureMessage string) (*Tailbox, error) {
-	ticker := time.NewTicker(150 * time.Millisecond)
+func NewTailbox(display *screen.Display, config *Config) (*Tailbox, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 
-	c, err := console.ConsoleFromFile(f)
-	if err != nil {
-		return nil, err
+	tb := Tailbox{
+		config:    config,
+		display:   display,
+		state:     Pending,
+		workflows: make([]*Workflow, 0),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 
-	size, err := c.Size()
-	TermHeight := numberOfLines
-	TermWidth := 80
-	if err == nil && size.Width > 0 {
-		TermWidth = int(size.Width)
-	}
-	pad := "=> "
-	padLen := len(pad)
-
-	var wg sync.WaitGroup
-	refresherCtx, refreshCanceller := context.WithCancel(context.Background())
-
-	term := vt100.NewVT100(TermHeight, TermWidth-padLen)
-	errTerm := vt100.NewVT100(100, TermWidth-padLen)
-	d := Tailbox{
-		c,
-		term,
-		errTerm,
-		io.MultiWriter(term, errTerm),
-		TermWidth,
-		TermHeight,
-		pad,
-		padLen,
-		0,
-		headerMessage,
-		runningMessage,
-		successMessage,
-		failureMessage,
-		Running,
-		ticker,
-		refresherCtx,
-		refreshCanceller,
-		&wg,
-		time.Now(),
+	for _, wf := range config.Workflows {
+		workflow := wf
+		tb.workflows = append(tb.workflows, NewWorkflow(&tb, &workflow))
 	}
 
-	go d.refresher()
-
-	return &d, nil
+	return &tb, nil
 }
 
-func (tb *Tailbox) Write(dt []byte) (int, error) {
-	return tb.termWriter.Write(dt)
-}
+func (tb *Tailbox) Start() {
+	tb.startTime = time.Now()
 
-func (tb *Tailbox) destroy() {
-	tb.ticker.Stop()
-	tb.refreshCanceller()
-	tb.wg.Wait()
-}
+	go func() {
+		ticker := time.NewTicker(150 * time.Millisecond)
 
-func (tb *Tailbox) Success() {
-	tb.status = Completed
-	tb.destroy()
-}
+		for {
+			select {
+			case <-tb.ctx.Done():
+				log.Println("Stopping refresher goroutine")
+				return
+			case <-ticker.C:
+				tb.draw()
+			}
+		}
+	}()
 
-func (tb *Tailbox) Fail(err error) {
-	tb.status = Failed
-	tb.destroy()
-	fmt.Println(aec.Apply(err.Error(), aec.RedF))
-}
+	tty, err := tty.Open()
+	if err == nil {
+		tb.tty = tty
+		go func() {
+			for {
+				// TODO: add context stop
+				r, err := tty.ReadRune()
+				if err != nil {
+					log.Printf("failed reading rune from tty: %s", err)
+				}
+				log.Println("Key press => " + string(r))
+				if r == 'd' {
+					log.Println("key press d > draw")
+					tb.draw()
+				}
+			}
+		}()
+	} else {
+		log.Printf("cannot open tty: %s", err)
+	}
 
-func (tb *Tailbox) refresher() {
-	tb.wg.Add(1)
+	interruptCtx := InterruptListener(tb.ctx)
 
-	defer tb.wg.Done()
+	wfChan := make(chan *Workflow)
+	go func() {
+		for _, wf := range tb.workflows {
+			if wf.config.When != WhenAlways {
+				continue
+			}
 
+			select {
+			case <-interruptCtx.Done():
+				log.Println("Closing wfChan")
+				close(wfChan)
+				return
+			case wfChan <- wf:
+				log.Println("Wrote wf to wfChan")
+			}
+		}
+
+		log.Println("End of workflow producer to wfchan")
+		close(wfChan)
+	}()
+
+workflowLoop:
 	for {
 		select {
-		case <-tb.refresherCtx.Done():
-			tb.update()
-			return
-		case <-tb.ticker.C:
-			tb.update()
-		}
-	}
-}
+		case <-interruptCtx.Done():
+			log.Println("Interrupt context canceled")
+			break workflowLoop
+		case wf := <-wfChan:
+			if wf == nil {
+				break workflowLoop
+			}
+			tb.draw()
+			tb.display.Snapshot()
 
-func (tb *Tailbox) update() {
-	b := aec.EmptyBuilder.Column(0)
-	if tb.lineCount > 0 {
-		b = b.Up(uint(tb.lineCount))
-	}
+			tb.runWorkflow(wf)
 
-	fmt.Fprint(tb.c, aec.Hide)
-	defer fmt.Fprint(tb.c, aec.Show)
-
-	fmt.Fprint(tb.c, b.ANSI)
-
-	lineCount := 0
-
-	var header string
-	var color aec.ANSI
-	switch tb.status {
-	case Running:
-		header = tb.runningMessage
-		color = aec.BlueF
-	case Completed:
-		header = tb.successMessage
-		color = aec.GreenF
-	case Failed:
-		header = tb.failureMessage
-		color = aec.RedF
-	}
-	if tb.headerMessage != "" {
-		header = tb.headerMessage
-	}
-	if header != "" {
-		lineCount++
-		fmt.Fprintln(tb.c, aec.Apply(align(header, fmt.Sprintf("%.1fs", time.Since(tb.startTime).Seconds()), tb.width), color))
-	}
-
-	term := tb.term
-	if tb.status == Failed {
-		term = tb.errTerm
-	}
-
-	if tb.status != Completed {
-		color = aec.Faint
-		if tb.status == Failed {
-			color = aec.RedF
-		}
-		for _, line := range term.Content {
-			if !isEmpty(line) {
-				out := aec.Apply(fmt.Sprintf(tb.pad+"%s\n", string(line)), color)
-				fmt.Fprint(tb.c, out)
-				lineCount++
+			if wf.state == Failed {
+				tb.state = Failing
 			}
 		}
 	}
 
-	if lines := tb.lineCount - lineCount; lines > 0 {
-		tb.blank(lines)
-	}
-	tb.lineCount = lineCount
-}
+	tb.Lock()
+	tb.state = Stopping
+	tb.Unlock()
 
-func (tb *Tailbox) blank(lines int) {
-	for i := 0; i < lines; i++ {
-		fmt.Fprintln(tb.c, strings.Repeat(" ", tb.width))
-	}
-	fmt.Fprint(tb.c, aec.EmptyBuilder.Up(uint(lines)).Column(0).ANSI)
-}
+	tb.draw()
 
-func isEmpty(line []rune) bool {
-	for _, r := range line {
-		if r != ' ' {
-			return false
+	if tb.workflow != nil && tb.workflow.state == Running {
+		tb.stopWorkflow(tb.workflow)
+		tb.draw()
+	}
+
+	tb.draw()
+	tb.resetWorkflow()
+
+	interruptCtx = InterruptListener(tb.ctx)
+
+	shutdownWfChan := make(chan *Workflow)
+	go func() {
+		for _, wf := range tb.workflows {
+			if wf.config.When != WhenShutdown {
+				continue
+			}
+
+			select {
+			case <-interruptCtx.Done():
+				close(shutdownWfChan)
+				return
+			case shutdownWfChan <- wf:
+			}
+		}
+
+		close(shutdownWfChan)
+	}()
+
+shutdownLoop:
+	for {
+		select {
+		case <-interruptCtx.Done():
+			log.Println("Interrupt context canceled")
+			break shutdownLoop
+		case wf := <-shutdownWfChan:
+			if wf == nil {
+				break shutdownLoop
+			}
+
+			tb.draw()
+			tb.display.Snapshot()
+
+			tb.runWorkflow(wf)
 		}
 	}
-	return true
+
+	tb.Lock()
+	tb.state = Stopped
+	tb.Unlock()
+
+	tb.draw()
+
+	if tb.tty != nil {
+		tb.tty.Close()
+	}
+
+	log.Println("End of Start")
 }
 
-func align(l, r string, w int) string {
-	return fmt.Sprint(l, strings.Repeat(" ", w-len(l)-len(r)), r)
+func InterruptListener(ctx context.Context) context.Context {
+	ctx, cancel := context.WithCancel(ctx)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Stopping signal notify goroutine")
+				return
+			case <-sig:
+				log.Println("Received SIGINT, stopping")
+				cancel()
+				return
+			}
+		}
+	}()
+
+	return ctx
+}
+
+func (tb *Tailbox) runWorkflow(wf *Workflow) {
+	log.Printf("Running workflow %s", wf.config.Name)
+
+	tb.Lock()
+	tb.workflow = wf
+	tb.Unlock()
+
+	wf.Lock()
+	wf.state = Running
+	wf.Unlock()
+
+	for _, st := range wf.steps {
+		if wf.state == Failing && st.When() != WhenAlways {
+			continue
+		}
+
+		wf.Lock()
+		wf.step = st
+		wf.Unlock()
+
+		st.Start()
+
+	}
+
+	wf.Lock()
+	wf.step = nil
+	wf.Unlock()
+
+	if wf.state == Failing {
+		wf.Lock()
+		wf.state = Failed
+		wf.Unlock()
+		return
+	}
+
+	wf.Lock()
+	wf.state = Completed
+	wf.Unlock()
+}
+
+func (tb *Tailbox) stopWorkflow(wf *Workflow) {
+	log.Println("stopWorflow, trying to get lock")
+	wf.Lock()
+	log.Println("Log acquired")
+	defer wf.Unlock()
+
+	if wf.state == Stopped {
+		return
+	}
+
+	log.Printf("Stopping workflow %s", wf.config.Name)
+
+	wf.state = Stopping
+	if wf.step != nil {
+		wf.step.Stop()
+	}
+	wf.state = Stopped
+}
+
+func (tb *Tailbox) resetWorkflow() {
+	tb.Lock()
+	defer tb.Unlock()
+
+	tb.workflow = nil
 }
